@@ -41,29 +41,71 @@ set (PROJECT_TYPE             "exe")
 set (LINKER_SCRIPT            "../STM32F407VGTX_FLASH.ld")
 set (MCPU                     "-mcpu=Cortex-M4")
 set (MFPU                 "-mfpu=fpv4-sp-d16")
-set (MFLOAT_ABI               "")
+set (MFLOAT_ABI               "-mfloat-abi=hard")
 set (RUNTIME_LIBRARY          "--specs=nano.specs")
 set (RUNTIME_LIBRARY_SYSCALLS "--specs=nosys.specs")
 
+# Surucu kaynaklari: git submodule, sabit etiket (bkz. docs/setup.md)
+set (HAL_DIR      third_party/stm32f4xx-hal-driver)
+set (CMSIS_DEV    third_party/cmsis-device-f4)
+set (CMSIS_CORE   third_party/cmsis-core)
+set (RTOS_DIR     third_party/FreeRTOS-Kernel)
 
 set (PROJECT_SOURCES
 	# LIST SOURCE FILES HERE
 	Startup/startup_stm32f407vgtx.s
-	Sources/main.c
-	Sources/syscalls.c
-	Sources/sysmem.c
+	Core/Src/main.c
+	Core/Src/system_clock.c
+	Core/Src/gpio.c
+	Core/Src/dma.c
+	Core/Src/usart.c
+	Core/Src/tim.c
+	Core/Src/stm32f4xx_it.c
+	Core/Src/stm32f4xx_hal_msp.c
+	Core/Src/stm32f4xx_hal_timebase_tim.c
+	Core/Src/freertos_hooks.c
+	Core/Src/syscalls.c
+	Core/Src/sysmem.c
 
+	# CMSIS device: SystemInit + SystemCoreClock (sablon, degistirilmeden)
+	${CMSIS_DEV}/Source/Templates/system_stm32f4xx.c
 
+	# HAL: sadece kullanilan moduller
+	${HAL_DIR}/Src/stm32f4xx_hal.c
+	${HAL_DIR}/Src/stm32f4xx_hal_rcc.c
+	${HAL_DIR}/Src/stm32f4xx_hal_rcc_ex.c
+	${HAL_DIR}/Src/stm32f4xx_hal_gpio.c
+	${HAL_DIR}/Src/stm32f4xx_hal_cortex.c
+	${HAL_DIR}/Src/stm32f4xx_hal_uart.c
+	${HAL_DIR}/Src/stm32f4xx_hal_dma.c
+	${HAL_DIR}/Src/stm32f4xx_hal_tim.c
+	${HAL_DIR}/Src/stm32f4xx_hal_tim_ex.c
+	${HAL_DIR}/Src/stm32f4xx_hal_pwr.c
+	${HAL_DIR}/Src/stm32f4xx_hal_flash.c
+
+	# FreeRTOS cekirdegi (timers/event_groups/stream_buffer kullanilmiyor)
+	${RTOS_DIR}/tasks.c
+	${RTOS_DIR}/queue.c
+	${RTOS_DIR}/list.c
+	${RTOS_DIR}/portable/GCC/ARM_CM4F/port.c
+	${RTOS_DIR}/portable/MemMang/heap_4.c
 	)
 
 set (PROJECT_DEFINES
 	# LIST COMPILER DEFINITIONS HERE
-
+	STM32F407xx
+	USE_HAL_DRIVER
+	HSE_VALUE=8000000
     )
 
 set (PROJECT_INCLUDES
 	# LIST INCLUDE DIRECTORIES HERE
-
+	Core/Inc
+	${HAL_DIR}/Inc
+	${CMSIS_DEV}/Include
+	${CMSIS_CORE}/Core/Include
+	${RTOS_DIR}/include
+	${RTOS_DIR}/portable/GCC/ARM_CM4F
     )
 
 ############ MODIFY ACCORDING TO REQUIREMENTS) ########################

@@ -1,5 +1,10 @@
+# CMake / CubeIDE derleme klasorleri (CMakePresets binaryDir = <preset adi>)
 build/
 Debug/
 Release/
 config_default/
+
+# Eclipse / STM32CubeIDE proje ve workspace artiklari
 .settings/
+.metadata/
+RemoteSystemsTempFiles/
