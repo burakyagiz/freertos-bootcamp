@@ -22,11 +22,8 @@ void MX_TIM2_Init(void)
         Error_Handler();
     }
 
-    /* _IT degil: tasma kesmesine gerek yok, sadece CNT okunacak. */
-    if (HAL_TIM_Base_Start(&htim2) != HAL_OK)
-    {
-        Error_Handler();
-    }
+    /* CubeMX gibi: burada sadece ayar yapilir, sayac baslatilmaz.
+     * Baslatma app_time_init() icinde (App/Src/app_time.c). */
 }
 
 /* HAL_TIM_Base_Init ilk cagrida bunu cagirir. TIM6 (timebase) de buraya

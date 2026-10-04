@@ -67,6 +67,10 @@ set (PROJECT_SOURCES
 	Core/Src/syscalls.c
 	Core/Src/sysmem.c
 
+	# Uygulama katmani (odev mantigi)
+	App/Src/app_time.c
+	App/Src/app_button.c
+
 	# CMSIS device: SystemInit + SystemCoreClock (sablon, degistirilmeden)
 	${CMSIS_DEV}/Source/Templates/system_stm32f4xx.c
 
@@ -101,6 +105,7 @@ set (PROJECT_DEFINES
 set (PROJECT_INCLUDES
 	# LIST INCLUDE DIRECTORIES HERE
 	Core/Inc
+	App/Inc
 	${HAL_DIR}/Inc
 	${CMSIS_DEV}/Include
 	${CMSIS_CORE}/Core/Include

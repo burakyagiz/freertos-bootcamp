@@ -1,6 +1,9 @@
 /**
  * @file    main.c
- * @brief   Faz 0b duman testi: donanim ilklendirme + UART selam + LED gorevi.
+ * @brief   Donanim ilklendirme + UART selam + Faz 1 buton testi.
+ *
+ * Faz 1 (gecici): buttonQ burada olusturulur; ButtonTest gorevi her olayda
+ * PD12'yi toggle eder. Faz 2'de gercek gorev mimarisiyle degistirilecek.
  *
  * FPU notu: CubeIDE taslagindaki "FPU is not initialized" uyarisi kaldirildi.
  * Startup, main'den once SystemInit()'i (system_stm32f4xx.c) cagirir; o da
@@ -11,19 +14,33 @@
 #include "main.h"
 #include "system_clock.h"
 #include "gpio.h"
-
 #include "dma.h"
 #include "usart.h"
 #include "tim.h"
+#include "app_time.h"
+#include "app_button.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "queue.h"
 
-#define LED_TASK_PERIOD_MS   500U
-#define LED_TASK_STACK_WORDS configMINIMAL_STACK_SIZE
-#define LED_TASK_PRIORITY    (tskIDLE_PRIORITY + 1U)
+#define BUTTON_TEST_STACK_WORDS  configMINIMAL_STACK_SIZE
+#define BUTTON_TEST_PRIORITY     (tskIDLE_PRIORITY + 2U)  /* ileride ButtonTask onceligi */
 
-static void led_blink_task(void *argument);
+/* 1 yapilirsa test gorevi her olaydan sonra 5 s uyur; o arada 10'dan fazla
+ * basilirsa buttonQ (8) dolar ve btn_drop yolu kartta test edilmis olur. */
+#ifndef BUTTON_TEST_SLOW_CONSUMER
+#define BUTTON_TEST_SLOW_CONSUMER  0
+#endif
+#define BUTTON_TEST_SLOW_DELAY_MS  5000U
+
+static QueueHandle_t button_queue;
+
+/* Test gorevinin aldigi son olay; debugger'da (Live Expressions) izlemek icin
+ * global (static degil) birakildi. */
+volatile ButtonEvent g_test_last_event;
+
+static void button_test_task(void *argument);
 
 int main(void)
 {
@@ -40,6 +57,7 @@ int main(void)
     MX_DMA_Init();
     MX_USART2_UART_Init();
     MX_TIM2_Init();
+    app_time_init();   /* TIM2 sayaci buradan itibaren 1 us adimla sayar */
 
     /* Bloklayan (polling) gonderim, scheduler'dan ve HER FreeRTOS cagrisindan
      * once. Neden: scheduler baslamadan yapilan ilk FreeRTOS API cagrisi
@@ -52,8 +70,23 @@ int main(void)
         Error_Handler();
     }
 
-    if (xTaskCreate(led_blink_task, "LedBlink", LED_TASK_STACK_WORDS, NULL,
-                    LED_TASK_PRIORITY, NULL) != pdPASS)
+    /* buttonQ: 8 olay, FIFO, ButtonEvent DEGER olarak kopyalanir (ISR'daki
+     * yerel degisken kuyruga kopyalandigi icin ISR bitince bozulmaz). */
+    button_queue = xQueueCreate(BUTTON_QUEUE_LENGTH, sizeof(ButtonEvent));
+    if (button_queue == NULL)
+    {
+        Error_Handler();
+    }
+    vQueueAddToRegistry(button_queue, "buttonQ");  /* CubeIDE debugger'da adiyla gorunur */
+
+    /* ISR'a kuyrugu bagla. Yukaridaki ilk FreeRTOS cagrisi (xQueueCreate)
+     * BASEPRI ile oncelik >= 5 kesmeleri maskeledi; bu yuzden bu arada
+     * basilsa bile EXTI0 kesmesi bekler ve fiilen scheduler basladiktan
+     * sonra calisir. Kuyruk o anda kesin hazirdir. */
+    app_button_init(button_queue);
+
+    if (xTaskCreate(button_test_task, "ButtonTest", BUTTON_TEST_STACK_WORDS, NULL,
+                    BUTTON_TEST_PRIORITY, NULL) != pdPASS)
     {
         Error_Handler();
     }
@@ -66,17 +99,23 @@ int main(void)
     Error_Handler();
 }
 
-/* PD12 (yesil LED) her 500 ms'de bir durum degistirir -> 1 Hz yanip sonme.
- * xTaskDelayUntil: periyot, gorevin kendi calisma suresinden bagimsiz sabit. */
-static void led_blink_task(void *argument)
+/* Faz 1 gecici test gorevi: buttonQ'dan olay bekler (portMAX_DELAY = olay
+ * gelene kadar CPU harcamadan bloklu kalir), her olayda PD12'yi toggle eder. */
+static void button_test_task(void *argument)
 {
     (void)argument;
-    TickType_t last_wake = xTaskGetTickCount();
+    ButtonEvent event;
 
     for (;;)
     {
-        HAL_GPIO_TogglePin(LED_GPIO_Port, LED_GREEN_Pin);
-        (void)xTaskDelayUntil(&last_wake, pdMS_TO_TICKS(LED_TASK_PERIOD_MS));
+        if (xQueueReceive(button_queue, &event, portMAX_DELAY) == pdPASS)
+        {
+            g_test_last_event = event;
+            HAL_GPIO_TogglePin(LED_GPIO_Port, LED_GREEN_Pin);
+#if BUTTON_TEST_SLOW_CONSUMER
+            vTaskDelay(pdMS_TO_TICKS(BUTTON_TEST_SLOW_DELAY_MS));
+#endif
+        }
     }
 }
 
