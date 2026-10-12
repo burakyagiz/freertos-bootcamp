@@ -9,6 +9,7 @@
  * yeniden tanimlanarak HAL'in uwTick sayaci TIM6'ya baglanir.
  */
 #include "main.h"
+#include "app_button.h"
 
 TIM_HandleTypeDef htim6;
 
@@ -72,11 +73,13 @@ void HAL_ResumeTick(void)
 
 /* TIM6_DAC_IRQHandler -> HAL_TIM_IRQHandler(&htim6) -> buraya gelir.
  * TIM2 kesmesiz calistigi icin su an baska kaynak yok; yine de instance
- * kontrol ediliyor ki ileride baska bir TIM kesmesi eklenirse tick bozulmasin. */
+ * kontrol ediliyor ki ileride baska bir TIM kesmesi eklenirse tick bozulmasin.
+ * CubeMX'te bu, main.c'deki "USER CODE BEGIN Callback 1" bolumune yazilirdi. */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
     if (htim->Instance == TIM6)
     {
         HAL_IncTick();
+        app_button_tick_1ms();   /* buton birakma takibi (1 kHz ornekleme) */
     }
 }

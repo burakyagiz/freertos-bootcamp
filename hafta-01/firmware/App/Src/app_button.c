@@ -21,11 +21,18 @@ volatile ButtonStats g_button_stats;
 static QueueHandle_t s_button_queue;   /* NULL: henuz baglanmadi */
 static QueueHandle_t s_tx_queue;
 
-/* Filtre durumu. Sadece bu ISR yazar ve ISR kendi kendini kesemez
+/* Filtre durumu. Sadece buton ISR'i yazar ve ISR kendi kendini kesemez
  * (ayni oncelik), bu yuzden kritik bolum gerekmez. */
 static bool     s_has_last;            /* false: henuz hic kabul yok ("ilk olay" durumu) */
 static uint32_t s_last_accept_us;      /* son KABUL edilen kenarin zamani */
+static uint32_t s_releases_at_accept;  /* son kabulde g_button_stats.releases degeri */
 static uint32_t s_next_id = 1U;
+
+/* Birakma takibi durumu. Sadece TIM6 ISR'i yazar. Acilista buton birakilmis
+ * ve bu birakma zaten sayilmis kabul edilir; boylece bos dururken
+ * releases = accepted olur. */
+static uint32_t s_low_ms = BUTTON_RELEASE_QUIET_MS;  /* pin kac ms'dir kesintisiz LOW */
+static uint32_t s_seen_rise_edges;                   /* son ornekte gorulen kenar sayisi */
 
 void app_button_init(QueueHandle_t button_queue, QueueHandle_t tx_queue)
 {
@@ -48,8 +55,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     {
         return;  /* MX_GPIO_Init ile app_button_init arasindaki kisa an */
     }
+    g_button_stats.rise_edges++;   /* TIM6 bunu gorup birakma sayimini sifirlar */
 
-    /* Tekrar-kenar filtresi. Ilk olayda (s_has_last == false) karsilastirma
+    /* Kural 1, tekrar-kenar filtresi. Ilk olayda (s_has_last == false) karsilastirma
      * yapilmaz: s_last_accept_us = 0 varsayilsaydi acilistan sonraki ilk
      * 30 ms'deki gercek bir basis yanlislikla atilirdi. Sure farki isaretsiz
      * cikarma ile alinir (elapsed_us), TIM2 sifira donse de dogrudur.
@@ -59,8 +67,20 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         g_button_stats.filtered++;
         return;
     }
-    s_has_last       = true;
-    s_last_accept_us = now;
+
+    /* Kural 2, birakma sarti. Son kabulden beri TIM6 tamamlanmis bir birakma
+     * saymadiysa buton hala basili ya da birakma ziplamasi suruyor demektir:
+     * bu kenar yeni bir basis degildir. Ilk olayda (s_has_last == false)
+     * kontrol yapilmaz; acilista buton birakilmis kabul edilir. */
+    if (s_has_last && (g_button_stats.releases == s_releases_at_accept))
+    {
+        g_button_stats.release_glitch++;
+        return;
+    }
+
+    s_has_last           = true;
+    s_last_accept_us     = now;
+    s_releases_at_accept = g_button_stats.releases;
 
     const ButtonEvent event = { .id = s_next_id++, .t0_us = now };
     g_button_stats.accepted++;
@@ -82,6 +102,50 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
      * oncelikli bir gorevi uyandirdiysa, ISR biter bitmez ona gecilir
      * (PendSV istenir). Yoksa kesilen gorev kaldigi yerden devam eder. */
     portYIELD_FROM_ISR(higher_priority_task_woken);
+}
+
+/* TIM6 ISR'indan her 1 ms'de cagrilir (oncelik 15). Buton ISR'i (oncelik 6)
+ * bunu kesebilir ama tersi olamaz; iki taraf da sadece kendi sayacina
+ * yazar. Maliyet birkac komut (~0.1 us).
+ *
+ * Birakma tamamlandi sayilmasi icin 30 ardisik ornekte:
+ *  - pin LOW okunmali ve
+ *  - buton ISR'ina hic yeni kenar gelmemis olmali.
+ * Ikinci sart, iki ornek arasina sigan kisa ziplamalari da yakalar. */
+void app_button_tick_1ms(void)
+{
+    const uint32_t edges = g_button_stats.rise_edges;
+    const bool     low   = (HAL_GPIO_ReadPin(BUTTON_GPIO_Port, BUTTON_Pin) == GPIO_PIN_RESET);
+
+    if (!low || (edges != s_seen_rise_edges))
+    {
+        s_seen_rise_edges = edges;
+        s_low_ms = 0U;      /* basili ya da zipliyor: sayima bastan basla */
+        return;
+    }
+
+    if (s_low_ms < BUTTON_RELEASE_QUIET_MS)
+    {
+        s_low_ms++;
+        if (s_low_ms == BUTTON_RELEASE_QUIET_MS)
+        {
+            /* Esik birakma basina bir kez gecilir. Son kontrol ve artis buton
+             * kesmesi araya giremeden yapilir: yukaridaki okumadan sonra gelen
+             * bir kenar, eski "birakildi" kararina gore sayilmasin. Kritik
+             * bolum birkac komut surer (< 0.1 us) ve birakma basina bir kez
+             * calisir. */
+            const UBaseType_t saved = taskENTER_CRITICAL_FROM_ISR();
+            if (g_button_stats.rise_edges == edges)
+            {
+                g_button_stats.releases++;
+            }
+            else
+            {
+                s_low_ms = 0U;
+            }
+            taskEXIT_CRITICAL_FROM_ISR(saved);
+        }
+    }
 }
 
 /* ButtonTask (oncelik 2). Olcum noktalari arasinda gereksiz is yok: t1 ile t2
