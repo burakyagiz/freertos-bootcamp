@@ -1,21 +1,25 @@
 /**
  * @file    app_button.c
- * @brief   Buton ISR mantigi.
+ * @brief   Buton ISR mantigi ve ButtonTask.
  *
  * Akis: EXTI0_IRQHandler (stm32f4xx_it.c) -> HAL_GPIO_EXTI_IRQHandler
  *       (bayragi temizler) -> HAL_GPIO_EXTI_Callback (burasi).
  * ISR icinde bekleme, printf, UART YOK; is birkac mikrosaniyede biter.
  */
+#include <inttypes.h>
 #include <stdbool.h>
 
 #include "app_button.h"
+#include "app_config.h"
+#include "app_msg.h"
+#include "app_record.h"
 #include "app_time.h"
 #include "main.h"
 
 volatile ButtonStats g_button_stats;
-ButtonEvent g_button_drop_log[BUTTON_DROP_LOG_LEN];
 
 static QueueHandle_t s_button_queue;   /* NULL: henuz baglanmadi */
+static QueueHandle_t s_tx_queue;
 
 /* Filtre durumu. Sadece bu ISR yazar ve ISR kendi kendini kesemez
  * (ayni oncelik), bu yuzden kritik bolum gerekmez. */
@@ -23,8 +27,9 @@ static bool     s_has_last;            /* false: henuz hic kabul yok ("ilk olay"
 static uint32_t s_last_accept_us;      /* son KABUL edilen kenarin zamani */
 static uint32_t s_next_id = 1U;
 
-void app_button_init(QueueHandle_t button_queue)
+void app_button_init(QueueHandle_t button_queue, QueueHandle_t tx_queue)
 {
+    s_tx_queue     = tx_queue;
     s_button_queue = button_queue;
 }
 
@@ -60,22 +65,70 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     const ButtonEvent event = { .id = s_next_id++, .t0_us = now };
     g_button_stats.accepted++;
 
-    /* Kuyruk doluysa bekleyemeyiz (ISR). Olay btn_drop sayilir ama id/t0
-     * kaybolmaz: drop log'a yazilir. id her kabule verildigi icin dusen
-     * olaylar da numarali kalir. */
+    /* Kayit kuyruga gondermeden ONCE acilir: ButtonTask olayi alip t1'i
+     * yazdiginda slot hazir olmali. */
+    record_open(event.id, now);
+
+    /* Kuyruk doluysa bekleyemeyiz (ISR). Olay kaybolmaz: kaydi btn_drop
+     * durumuyla kapanir, id ve t0'i havuzda kalir. */
     BaseType_t higher_priority_task_woken = pdFALSE;
     if (xQueueSendFromISR(s_button_queue, &event, &higher_priority_task_woken) != pdPASS)
     {
-        const uint32_t drop_index = g_button_stats.btn_drop;
-        if (drop_index < BUTTON_DROP_LOG_LEN)
-        {
-            g_button_drop_log[drop_index] = event;
-        }
-        g_button_stats.btn_drop = drop_index + 1U;
+        record_close(event.id, REC_STATUS_BTN_DROP);
+        g_button_stats.btn_drop++;
     }
 
     /* Kuyruk, bu olayi bekleyen ve su an calisan gorevden daha yuksek
      * oncelikli bir gorevi uyandirdiysa, ISR biter bitmez ona gecilir
      * (PendSV istenir). Yoksa kesilen gorev kaldigi yerden devam eder. */
     portYIELD_FROM_ISR(higher_priority_task_woken);
+}
+
+/* ButtonTask (oncelik 2). Olcum noktalari arasinda gereksiz is yok: t1 ile t2
+ * arasinda sadece yanit mesajinin hazirlanmasi, t2 ile gonderim arasinda
+ * sadece kaydin yazilmasi var. */
+void button_task(void *argument)
+{
+    (void)argument;
+    ButtonEvent event;
+    TxMsg msg;
+
+    for (;;)
+    {
+        /* Olay gelene kadar CPU harcamadan bloklu bekler. */
+        if (xQueueReceive(s_button_queue, &event, portMAX_DELAY) != pdPASS)
+        {
+            continue;
+        }
+        record_set_time(event.id, REC_T1, timer_us());
+
+        if (!msg_format(&msg, MSG_TYPE_BTN, event.id, "BTN,%" PRIu32 ",S%u,PRESSED",
+                        event.id, (unsigned)SCENARIO))
+        {
+            /* Metin sabit ve kisa (en fazla 25 karakter); buraya gelinmesi
+             * programlama hatasidir. */
+            configASSERT(0);
+            continue;
+        }
+
+        /* t2 gonderimden ONCE okunur ve kayda yazilir. Olay txQ'ya verildikten
+         * sonra kayda artik sonraki sahip (UartTxTask) yazar; oncelikler
+         * degistirilse bile bu sira bozulmaz. Gonderim basarisizsa olay
+         * elden cikmamistir, kaydi ButtonTask kapatir. */
+        record_set_time(event.id, REC_T2, timer_us());
+
+        /* Timeout 0: txQ doluysa beklemek ButtonTask'i baska bir duruma sokardi;
+         * bunun yerine kayip gorunur kilinir. */
+        if (xQueueSend(s_tx_queue, &msg, 0) != pdPASS)
+        {
+            record_close(event.id, REC_STATUS_TX_DROP);
+            g_button_stats.tx_drop++;
+        }
+
+        /* Gorsel geri bildirim. t1..t2 disinda ama t2..t3 icinde: UartTxTask
+         * (daha dusuk oncelik) ancak ButtonTask bloklaninca, yani bu satirdan
+         * sonra calisir. Maliyeti birkac komut (~0.1 us), TIM2'nin 1 us
+         * cozunurlugunun altinda. */
+        HAL_GPIO_TogglePin(LED_GPIO_Port, LED_GREEN_Pin);
+    }
 }

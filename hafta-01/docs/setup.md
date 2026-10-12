@@ -370,6 +370,9 @@ Terminal: 115200 8N1.
 | Yeşil LED 1 Hz | ✅ | Yükleme, FreeRTOS scheduler, `xTaskDelayUntil` |
 | `SystemCoreClock`: 16 000 000 → 168 000 000 | ✅ | HSE + PLL saat ağacı |
 | `HAL_UART_Transmit` sonrası satıra ulaşıldı | ✅ | USART2 14 baytı gönderdi (TC bayrağı beklendi) |
-| "Merhaba F407" PC'de görüldü | ❌ (bekliyor) | Karttaki ST-LINK sanal COM portu (COM5) var ama PA2'ye bağlı değil |
+| "Merhaba F407" PC'de görüldü | ✅ (2026-10-12) | USART2 → PA2 → CP2102 USB-TTL dönüştürücü → PC, 115200 8N1 |
 
-UART çıkışının PC'de görülmesi için USB-TTL dönüştürücü bekleniyor (PA2 → RX, GND → GND).
+Karttaki ST-LINK sanal COM portu (COM5) var ama PA2'ye bağlı değil; bu yüzden UART çıkışı
+3.3 V USB-TTL dönüştürücüyle alındı (PA2 → RX, GND → GND, VCC bağlanmadı). CP2102 için
+Windows'ta Silicon Labs CP210x VCP sürücüsü gerekti (sürücüsüz cihaz hata kodu 28 verir ve
+COM portu olarak görünmez).

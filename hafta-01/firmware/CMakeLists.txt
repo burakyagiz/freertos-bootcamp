@@ -70,6 +70,11 @@ set (PROJECT_SOURCES
 	# Uygulama katmani (odev mantigi)
 	App/Src/app_time.c
 	App/Src/app_button.c
+	App/Src/app_msg.c
+	App/Src/app_record.c
+	App/Src/app_telemetry.c
+	App/Src/app_uart_tx.c
+	App/Src/app_tasks.c
 
 	# CMSIS device: SystemInit + SystemCoreClock (sablon, degistirilmeden)
 	${CMSIS_DEV}/Source/Templates/system_stm32f4xx.c

@@ -1,9 +1,9 @@
 /**
  * @file    main.c
- * @brief   Donanim ilklendirme + UART selam + Faz 1 buton testi.
+ * @brief   Donanim ilklendirme + UART selam + uygulama mimarisinin baslatilmasi.
  *
- * Faz 1 (gecici): buttonQ burada olusturulur; ButtonTest gorevi her olayda
- * PD12'yi toggle eder. Faz 2'de gercek gorev mimarisiyle degistirilecek.
+ * Kuyruk ve gorevler App/Src/app_tasks.c'de olusturulur; main sadece
+ * donanimi hazirlar ve scheduler'i baslatir.
  *
  * FPU notu: CubeIDE taslagindaki "FPU is not initialized" uyarisi kaldirildi.
  * Startup, main'den once SystemInit()'i (system_stm32f4xx.c) cagirir; o da
@@ -18,29 +18,10 @@
 #include "usart.h"
 #include "tim.h"
 #include "app_time.h"
-#include "app_button.h"
+#include "app_tasks.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
-#include "queue.h"
-
-#define BUTTON_TEST_STACK_WORDS  configMINIMAL_STACK_SIZE
-#define BUTTON_TEST_PRIORITY     (tskIDLE_PRIORITY + 2U)  /* ileride ButtonTask onceligi */
-
-/* 1 yapilirsa test gorevi her olaydan sonra 5 s uyur; o arada 10'dan fazla
- * basilirsa buttonQ (8) dolar ve btn_drop yolu kartta test edilmis olur. */
-#ifndef BUTTON_TEST_SLOW_CONSUMER
-#define BUTTON_TEST_SLOW_CONSUMER  0
-#endif
-#define BUTTON_TEST_SLOW_DELAY_MS  5000U
-
-static QueueHandle_t button_queue;
-
-/* Test gorevinin aldigi son olay; debugger'da (Live Expressions) izlemek icin
- * global (static degil) birakildi. */
-volatile ButtonEvent g_test_last_event;
-
-static void button_test_task(void *argument);
 
 int main(void)
 {
@@ -70,26 +51,11 @@ int main(void)
         Error_Handler();
     }
 
-    /* buttonQ: 8 olay, FIFO, ButtonEvent DEGER olarak kopyalanir (ISR'daki
-     * yerel degisken kuyruga kopyalandigi icin ISR bitince bozulmaz). */
-    button_queue = xQueueCreate(BUTTON_QUEUE_LENGTH, sizeof(ButtonEvent));
-    if (button_queue == NULL)
-    {
-        Error_Handler();
-    }
-    vQueueAddToRegistry(button_queue, "buttonQ");  /* CubeIDE debugger'da adiyla gorunur */
-
-    /* ISR'a kuyrugu bagla. Yukaridaki ilk FreeRTOS cagrisi (xQueueCreate)
-     * BASEPRI ile oncelik >= 5 kesmeleri maskeledi; bu yuzden bu arada
-     * basilsa bile EXTI0 kesmesi bekler ve fiilen scheduler basladiktan
-     * sonra calisir. Kuyruk o anda kesin hazirdir. */
-    app_button_init(button_queue);
-
-    if (xTaskCreate(button_test_task, "ButtonTest", BUTTON_TEST_STACK_WORDS, NULL,
-                    BUTTON_TEST_PRIORITY, NULL) != pdPASS)
-    {
-        Error_Handler();
-    }
+    /* buttonQ, txQ ve 3 gorev. Icerideki ilk FreeRTOS cagrisi (xQueueCreate)
+     * BASEPRI ile oncelik >= 5 kesmeleri maskeler; bu yuzden bu arada butona
+     * basilsa bile EXTI0 kesmesi bekler ve fiilen scheduler basladiktan sonra
+     * calisir. Kuyruklar o anda kesin hazirdir. */
+    app_tasks_create();
 
     /* Idle gorevini olusturur, SysTick'i 1 kHz kurar, ilk gorevi SVC ile
      * baslatir. Basarili olursa geri donmez. */
@@ -97,26 +63,6 @@ int main(void)
 
     /* Buraya gelindiyse idle gorevi icin heap yetmedi. */
     Error_Handler();
-}
-
-/* Faz 1 gecici test gorevi: buttonQ'dan olay bekler (portMAX_DELAY = olay
- * gelene kadar CPU harcamadan bloklu kalir), her olayda PD12'yi toggle eder. */
-static void button_test_task(void *argument)
-{
-    (void)argument;
-    ButtonEvent event;
-
-    for (;;)
-    {
-        if (xQueueReceive(button_queue, &event, portMAX_DELAY) == pdPASS)
-        {
-            g_test_last_event = event;
-            HAL_GPIO_TogglePin(LED_GPIO_Port, LED_GREEN_Pin);
-#if BUTTON_TEST_SLOW_CONSUMER
-            vTaskDelay(pdMS_TO_TICKS(BUTTON_TEST_SLOW_DELAY_MS));
-#endif
-        }
-    }
 }
 
 /* CubeMX ile ayni davranis: kesmeleri kapat ve dur. Debugger'da cagri yigini
