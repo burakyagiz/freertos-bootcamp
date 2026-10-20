@@ -5,6 +5,8 @@
  * ISR: t0 zaman damgasi, kenar filtresi, kayit havuzunda olayi acma,
  *      buttonQ'ya gonderim.
  * ButtonTask: olayi alir (t1), yanit mesajini bicimler, txQ'ya gonderir (t2).
+ *   Deney hedefine ulasildiysa son olaydan sonra txQ'ya EXPORT isareti koyar
+ *   (akis: app_experiment.h).
  *
  * Kenar filtresi iki kuraldan olusur:
  *  1. Sartname kurali (degismedi): kabul edilen kenardan sonraki 30 ms
@@ -36,22 +38,29 @@ typedef struct
 
 /* Her sayacin tek yazari var; 32-bit hizali okuma/yazma Cortex-M4'te tek
  * komut oldugu icin kilit gerekmez.
- *   rise_edges, accepted, filtered, release_glitch, btn_drop -> buton ISR
+ *   rise_edges, accepted, filtered, release_glitch,
+ *   warmup_ignored, late_ignored, btn_drop                   -> buton ISR
  *   releases                                                 -> TIM6 ISR
- *   tx_drop                                                  -> ButtonTask
+ *   tx_drop, txq_max                                         -> ButtonTask
+ * "Basis" = filtrenin iki kuralini gecen kenar. Sadece olcum penceresindeki
+ * basis kaydedilir ve accepted'a girer (olay kimligi alir).
  * Kontroller:
- *   rise_edges = accepted + filtered + release_glitch  (ISR'a gelen her kenar)
+ *   rise_edges = accepted + filtered + release_glitch
+ *                + warmup_ignored + late_ignored   (ISR'a gelen her kenar)
  *   accepted   = buttonQ'ya giden + btn_drop
- *   buton birakilmis dururken: releases = accepted */
+ *   buton birakilmis dururken: releases = accepted + warmup_ignored + late_ignored */
 typedef struct
 {
     uint32_t rise_edges;      /* ISR'a gelen tum yukselen kenarlar */
-    uint32_t accepted;
+    uint32_t accepted;        /* kaydedilen (olculen) basis; id'ler 1..accepted */
     uint32_t filtered;        /* kural 1: kabulden sonraki 30 ms icinde */
     uint32_t release_glitch;  /* kural 2: buton henuz birakilmamisken */
+    uint32_t warmup_ignored;  /* gercek basis ama isinma suruyordu: kaydedilmedi */
+    uint32_t late_ignored;    /* gercek basis ama hedef sayiya ulasilmisti: kaydedilmedi */
     uint32_t releases;        /* tamamlanan birakma (30 ms kesintisiz LOW) */
     uint32_t btn_drop;
     uint32_t tx_drop;
+    uint32_t txq_max;         /* BTN gonderiminden hemen sonra gorulen en buyuk txQ dolulugu */
 } ButtonStats;
 
 extern volatile ButtonStats g_button_stats;

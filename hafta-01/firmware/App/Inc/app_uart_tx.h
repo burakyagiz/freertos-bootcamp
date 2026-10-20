@@ -9,6 +9,9 @@
  * Gonderim DMA ile yapilir; gorev aktarim bitene kadar (en fazla
  * UART_TX_TIMEOUT_MS) task notification ile bloklu bekler. HAL_UART_TxCpltCallback
  * ve HAL_UART_ErrorCallback da bu modulde tanimlidir.
+ *
+ * Deney sonunda EXPORT isaretini alinca kayitlari da bu gorev gonderir
+ * (app_experiment.h).
  */
 #ifndef APP_UART_TX_H
 #define APP_UART_TX_H
@@ -18,12 +21,16 @@
 #include "queue.h"
 
 /* Sayaclarin yazari UartTxTask; last_error_code'u ErrorCallback yazar.
- * Kontrol: aktarim yokken rx_tel + rx_btn =
- *          tx_done + start_fail + tx_error + tx_timeout. */
+ * Kontrol: aktarim yokken rx_tel + rx_btn + rx_cal =
+ *          tx_done + start_fail + tx_error + tx_timeout.
+ * Disa aktarma satirlari bu sayaclara girmez (export_*). */
 typedef struct
 {
     uint32_t rx_tel;          /* txQ'dan alinan TEL mesaji */
     uint32_t rx_btn;          /* txQ'dan alinan BTN mesaji */
+    uint32_t rx_cal;          /* txQ'dan alinan CAL mesaji */
+    uint32_t export_lines;    /* basariyla gonderilen REC/CNT/END satiri */
+    uint32_t export_fail;     /* gonderilemeyen REC/CNT/END satiri */
     uint32_t tx_done;         /* TxCpltCallback ile biten aktarim (TEL + BTN) */
     uint32_t start_fail;      /* HAL_UART_Transmit_DMA HAL_OK donmedi */
     uint32_t tx_error;        /* HAL_UART_ErrorCallback geldi */

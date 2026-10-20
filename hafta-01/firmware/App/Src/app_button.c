@@ -11,6 +11,7 @@
 
 #include "app_button.h"
 #include "app_config.h"
+#include "app_experiment.h"
 #include "app_msg.h"
 #include "app_record.h"
 #include "app_time.h"
@@ -82,6 +83,21 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     s_last_accept_us     = now;
     s_releases_at_accept = g_button_stats.releases;
 
+    /* Gercek bir basis. Filtre durumu yukarida HER basis icin guncellendi
+     * (birakma takibi bozulmasin); ama olcum penceresi disindaysa olay
+     * kaydedilmez, sadece sayilir. Bu iki kontrol t0 ile t1 arasina kisa
+     * bir is ekler (tahmin: 1 us'nin altinda) ve her olayda aynidir. */
+    if (!experiment_warmup_done())
+    {
+        g_button_stats.warmup_ignored++;
+        return;
+    }
+    if (experiment_stop_requested())
+    {
+        g_button_stats.late_ignored++;
+        return;
+    }
+
     const ButtonEvent event = { .id = s_next_id++, .t0_us = now };
     g_button_stats.accepted++;
 
@@ -96,6 +112,15 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     {
         record_close(event.id, REC_STATUS_BTN_DROP);
         g_button_stats.btn_drop++;
+    }
+
+    /* Hedef sayidaki olay: durdurma, olay kuyruga verildikten SONRA istenir.
+     * Boylece ButtonTask "durdurma istendi ve kuyruk bos" durumunu ancak bu
+     * olayi isledikten sonra gorebilir. (Olay btn_drop olduysa kuyruk
+     * doludur; ButtonTask yine once bekleyenleri isler.) */
+    if (g_button_stats.accepted >= EXPERIMENT_TARGET_EVENTS)
+    {
+        experiment_request_stop();
     }
 
     /* Kuyruk, bu olayi bekleyen ve su an calisan gorevden daha yuksek
@@ -148,6 +173,18 @@ void app_button_tick_1ms(void)
     }
 }
 
+/* Olcum bitti: UartTxTask'a disa aktarma isaretini txQ uzerinden verir.
+ * FIFO sayesinde isaret, onceki butun BTN yanitlarinin ARKASINDA kalir. */
+static void request_export(void)
+{
+    /* Hatta gitmeyen isaret; icerigi kullanilmaz. */
+    const TxMsg marker = { .type = MSG_TYPE_EXPORT };
+
+    /* Olcum bittigi icin beklemek hicbir araligi etkilemez: kuyruk dolu
+     * olsa bile isaret kaybolmasin, yer acilana kadar bekle. */
+    (void)xQueueSend(s_tx_queue, &marker, portMAX_DELAY);
+}
+
 /* ButtonTask (oncelik 2). Olcum noktalari arasinda gereksiz is yok: t1 ile t2
  * arasinda sadece yanit mesajinin hazirlanmasi, t2 ile gonderim arasinda
  * sadece kaydin yazilmasi var. */
@@ -156,12 +193,24 @@ void button_task(void *argument)
     (void)argument;
     ButtonEvent event;
     TxMsg msg;
+    bool export_requested = false;
 
     for (;;)
     {
-        /* Olay gelene kadar CPU harcamadan bloklu bekler. */
-        if (xQueueReceive(s_button_queue, &event, portMAX_DELAY) != pdPASS)
+        /* Olay gelene kadar CPU harcamadan bloklu bekler. Durdurma
+         * istendiyse sonsuza kadar degil EXPERIMENT_END_DELAY_MS bekler:
+         * ISR artik olay kabul etmedigi icin bu surede bir sey gelmemesi,
+         * son olayin islendigi anlamina gelir. Isaret son olaydan hemen
+         * sonra degil bu bekleme sonunda gonderilir; boylece isareti
+         * gondermenin maliyeti son olayin t2..t3 araligina girmez. */
+        const TickType_t wait = (experiment_stop_requested() && !export_requested)
+                                    ? pdMS_TO_TICKS(EXPERIMENT_END_DELAY_MS)
+                                    : portMAX_DELAY;
+        if (xQueueReceive(s_button_queue, &event, wait) != pdPASS)
         {
+            /* Sadece sureli beklemede olur: buttonQ bos, durdurma istendi. */
+            request_export();
+            export_requested = true;
             continue;
         }
         record_set_time(event.id, REC_T1, timer_us());
@@ -188,11 +237,24 @@ void button_task(void *argument)
             record_close(event.id, REC_STATUS_TX_DROP);
             g_button_stats.tx_drop++;
         }
+        else
+        {
+            /* txQ yuksek su seviyesi. Kuyruk sadece UartTxTask (daha dusuk
+             * oncelik) alinca azalir ve o araya giremez: bu okuma, bu
+             * gonderimin ulastigi doluluktur. TelemetryTask kendi
+             * gonderimleri icin ayni seyi yapar (her degiskenin tek yazari). */
+            const UBaseType_t waiting = uxQueueMessagesWaiting(s_tx_queue);
+            if (waiting > g_button_stats.txq_max)
+            {
+                g_button_stats.txq_max = waiting;
+            }
+        }
 
-        /* Gorsel geri bildirim. t1..t2 disinda ama t2..t3 icinde: UartTxTask
-         * (daha dusuk oncelik) ancak ButtonTask bloklaninca, yani bu satirdan
-         * sonra calisir. Maliyeti birkac komut (~0.1 us), TIM2'nin 1 us
-         * cozunurlugunun altinda. */
+        /* Gorsel geri bildirim ve yukaridaki doluluk okumasi t1..t2 disinda
+         * ama t2..t3 icinde: UartTxTask (daha dusuk oncelik) ancak ButtonTask
+         * bloklaninca, yani bu satirdan sonra calisir. Ikisi birlikte birkac
+         * on komut (tahmin: TIM2'nin 1 us cozunurlugunun altinda) ve her
+         * olayda ayni. */
         HAL_GPIO_TogglePin(LED_GPIO_Port, LED_GREEN_Pin);
     }
 }

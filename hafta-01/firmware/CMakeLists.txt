@@ -75,6 +75,7 @@ set (PROJECT_SOURCES
 	App/Src/app_telemetry.c
 	App/Src/app_uart_tx.c
 	App/Src/app_tasks.c
+	App/Src/app_experiment.c
 
 	# CMSIS device: SystemInit + SystemCoreClock (sablon, degistirilmeden)
 	${CMSIS_DEV}/Source/Templates/system_stm32f4xx.c

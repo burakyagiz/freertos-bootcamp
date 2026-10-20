@@ -3,7 +3,7 @@
  * @brief   Olcum kayit havuzu: her kabul edilen buton olayi icin t0..t4 + durum.
  *
  * Slot = event_id % RECORD_POOL_LEN. Olcum sirasinda sadece RAM'e yazilir;
- * disa aktarma deney bitince yapilir (Faz 4).
+ * disa aktarma deney bitince UartTxTask tarafindan yapilir (app_experiment.h).
  *
  * Alan sahipligi (her alani TEK bir yer yazar):
  *   event_id, t0, status=btn_drop  -> buton ISR (HAL_GPIO_EXTI_Callback)

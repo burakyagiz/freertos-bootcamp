@@ -18,8 +18,10 @@
 
 typedef enum
 {
-    MSG_TYPE_TEL = 1,
-    MSG_TYPE_BTN = 2,
+    MSG_TYPE_TEL    = 1,
+    MSG_TYPE_BTN    = 2,
+    MSG_TYPE_CAL    = 3,   /* acilista kalibrasyon sonucu (64 bayt, isinmada) */
+    MSG_TYPE_EXPORT = 4,   /* hatta gitmez: UartTxTask'a "olcum bitti, disa aktar" isareti */
 } MsgType;
 
 /* txQ'ya DEGER olarak kopyalanir: icinde pointer yok, gonderenin yerel

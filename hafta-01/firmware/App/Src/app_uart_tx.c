@@ -14,12 +14,17 @@
  * Gorev ile callback'ler s_tx_state uzerinden haberlesir. Aktarimin sonucunu
  * (bitti / hata / timeout) PENDING'den ilk cikaran taraf belirler; gec kalan
  * taraf hicbir sey yazmaz. Boylece ayni kayda hem "ok" hem "timeout" yazilamaz.
+ *
+ * Deney sonu (EXPORT isareti): telemetri durdurulur, kuyrukta kalanlar
+ * gonderilir, sonra REC/CNT/END satirlari ayni tampon ve ayni gonderim
+ * yoluyla (transmit_and_wait) gider.
  */
 #include <stdbool.h>
 #include <string.h>
 
 #include "app_uart_tx.h"
 #include "app_config.h"
+#include "app_experiment.h"
 #include "app_msg.h"
 #include "app_record.h"
 #include "app_time.h"
@@ -30,11 +35,12 @@
 /* IDLE = 0: acilista (.bss sifir) callback'ler hicbir sey yapmaz. */
 typedef enum
 {
-    TX_IDLE = 0,   /* henuz aktarim yok */
-    TX_PENDING,    /* baslatildi, sonuc bekleniyor */
-    TX_DONE,       /* TxCpltCallback: son bit hattan cikti */
-    TX_ERROR,      /* ErrorCallback: HAL aktarimi hatayla bitirdi */
-    TX_TIMEOUT,    /* gorev UART_TX_TIMEOUT_MS icinde haber alamadi */
+    TX_IDLE = 0,    /* henuz aktarim yok */
+    TX_PENDING,     /* baslatildi, sonuc bekleniyor */
+    TX_DONE,        /* TxCpltCallback: son bit hattan cikti */
+    TX_ERROR,       /* ErrorCallback: HAL aktarimi hatayla bitirdi */
+    TX_TIMEOUT,     /* gorev UART_TX_TIMEOUT_MS icinde haber alamadi */
+    TX_START_FAIL,  /* HAL_UART_Transmit_DMA HAL_OK donmedi, aktarim yok */
 } TxState;
 
 volatile UartTxStats g_uart_tx_stats;
@@ -43,8 +49,12 @@ static QueueHandle_t s_tx_queue;
 static TaskHandle_t  s_task;   /* callback'lerin uyandirdigi gorev */
 
 /* DMA'nin okudugu tampon. Statik: adresi sabit ve .bss -> SRAM'de (DMA1
- * CCM RAM'e erisemez). Sadece UartTxTask yazar, sadece DMA durmusken. */
-static uint8_t s_tx_buffer[MSG_LEN];
+ * CCM RAM'e erisemez). Sadece UartTxTask yazar, sadece DMA durmusken.
+ * Olcum mesajlari ilk 64 bayti kullanir; boyut en uzun disa aktarma
+ * satirina gore secildi: CNT, her sayac 10 basamak olsa bile ~560 bayt. */
+#define TX_BUFFER_LEN  640U
+_Static_assert(TX_BUFFER_LEN >= MSG_LEN, "tampon 64 baytlik mesaji almali");
+static uint8_t s_tx_buffer[TX_BUFFER_LEN];
 
 /* Gorev aktarimi baslatmadan once yazar, callback'ler okur. */
 static volatile uint8_t  s_tx_is_btn;     /* 1: BTN mesaji, t4 kaydedilir */
@@ -100,6 +110,132 @@ static TxState wait_for_result(void)
     return result;
 }
 
+/* s_tx_buffer'in ilk len baytini gonderir ve sonucu bekler. Donunce aktarim
+ * ya bitmis ya da durdurulmustur: DMA tamponu artik okumuyor, cagiran onu
+ * yeniden yazabilir. is_btn ise t3 burada yazilir; t4 ve "ok" callback'te. */
+static TxState transmit_and_wait(uint16_t len, bool is_btn, uint32_t event_id)
+{
+    s_tx_is_btn   = is_btn ? 1U : 0U;
+    s_tx_event_id = event_id;
+
+    /* Timeout ile callback ayni anda olduysa callback'in bildirimi
+     * sayacta kalmistir; silinmezse asagidaki bekleme hemen donerdi. */
+    (void)ulTaskNotifyTake(pdTRUE, 0);
+    s_tx_state = TX_PENDING;
+
+    /* t3: baslatma cagrisindan hemen once. */
+    if (is_btn)
+    {
+        record_set_time(event_id, REC_T3, timer_us());
+    }
+
+    if (HAL_UART_Transmit_DMA(&huart2, s_tx_buffer, len) != HAL_OK)
+    {
+        /* Aktarim hic baslamadi, callback gelmeyecek: 1 s beklemek
+         * bosuna olur. huart2 takili kalmasin diye yine de durdurulur. */
+        s_tx_state = TX_START_FAIL;
+        uart_make_safe();
+        return TX_START_FAIL;
+    }
+
+    const TxState result = wait_for_result();
+    if (result != TX_DONE)
+    {
+        /* Hata ya da timeout: DMA hala calisiyor olabilir, durdur. */
+        uart_make_safe();
+    }
+    return result;
+}
+
+/* Bir olcum mesajini (TEL, BTN, CAL; hepsi 64 bayt) gonderir ve sonucu sayar. */
+static void send_message(const TxMsg *msg)
+{
+    const bool is_btn = (msg->type == MSG_TYPE_BTN);
+    if (is_btn)
+    {
+        g_uart_tx_stats.rx_btn++;
+    }
+    else if (msg->type == MSG_TYPE_CAL)
+    {
+        g_uart_tx_stats.rx_cal++;
+    }
+    else
+    {
+        g_uart_tx_stats.rx_tel++;
+    }
+
+    /* Buraya ancak onceki aktarim bittikten ya da durdurulduktan sonra
+     * gelinir (transmit_and_wait): DMA tamponu okumuyor, uzerine yazmak
+     * guvenli. Kopya t3'ten once, olculen araliga karismasin. */
+    memcpy(s_tx_buffer, msg->data, MSG_LEN);
+
+    RecordStatus status;
+    switch (transmit_and_wait(MSG_LEN, is_btn, msg->event_id))
+    {
+    case TX_DONE:
+        g_uart_tx_stats.tx_done++;   /* t4 ve "ok" callback'te yazildi */
+        return;
+    case TX_TIMEOUT:
+        g_uart_tx_stats.tx_timeout++;
+        status = REC_STATUS_TIMEOUT;
+        break;
+    case TX_START_FAIL:
+        g_uart_tx_stats.start_fail++;
+        status = REC_STATUS_TX_ERROR;
+        break;
+    default:   /* TX_ERROR */
+        g_uart_tx_stats.tx_error++;
+        status = REC_STATUS_TX_ERROR;
+        break;
+    }
+    if (is_btn)
+    {
+        record_close(msg->event_id, status);
+    }
+}
+
+/* EXPORT isareti alindi: olcum bitti (akis: app_experiment.h, adim 3-4). */
+static void finish_experiment(void)
+{
+    /* Isaret FIFO'da son BTN yanitinin arkasindaydi ve bir mesaj bitmeden
+     * sonraki alinmaz: su an butun olcum kayitlari kapanmis. Telemetri bu
+     * gorev calisirken bloklu (daha yuksek oncelik); uyaninca bayragi gorur
+     * ve bir daha mesaj uretmez. */
+    experiment_stop_telemetry();
+
+    /* Isaretten sonra kuyruga girmis TEL'ler: gonderilir ki sayaclar
+     * (tel_sent = rx_tel) tutarli kalsin. Olcum kayitlarina dokunmazlar. */
+    TxMsg msg;
+    while (xQueueReceive(s_tx_queue, &msg, 0) == pdPASS)
+    {
+        if (msg.type != MSG_TYPE_EXPORT)
+        {
+            send_message(&msg);
+        }
+    }
+
+    /* Satirlar dogrudan DMA tamponuna yazilir. Ayni guvence: her satir
+     * ancak transmit_and_wait bir oncekinin bittigini gosterdikten sonra
+     * yazilir. */
+    for (uint32_t index = 0U; ; index++)
+    {
+        const uint32_t len = experiment_export_line(index, (char *)s_tx_buffer, TX_BUFFER_LEN);
+        if (len == 0U)
+        {
+            break;
+        }
+        if (transmit_and_wait((uint16_t)len, false, 0U) == TX_DONE)
+        {
+            g_uart_tx_stats.export_lines++;
+        }
+        else
+        {
+            g_uart_tx_stats.export_fail++;
+        }
+    }
+    experiment_mark_exported();
+}
+
 void uart_tx_task(void *argument)
 {
     (void)argument;
@@ -117,75 +253,13 @@ void uart_tx_task(void *argument)
             continue;
         }
 
-        const bool is_btn = (msg.type == MSG_TYPE_BTN);
-        if (is_btn)
+        if (msg.type == MSG_TYPE_EXPORT)
         {
-            g_uart_tx_stats.rx_btn++;
+            finish_experiment();
         }
         else
         {
-            g_uart_tx_stats.rx_tel++;
-        }
-
-        /* Buraya ancak onceki aktarim bittikten ya da durdurulduktan sonra
-         * gelinir (asagidaki bekleme/uart_make_safe): DMA tamponu okumuyor,
-         * uzerine yazmak guvenli. Hazirlik t3'ten once, olculen araliga
-         * karismasin. */
-        memcpy(s_tx_buffer, msg.data, MSG_LEN);
-        s_tx_is_btn   = is_btn ? 1U : 0U;
-        s_tx_event_id = msg.event_id;
-
-        /* Timeout ile callback ayni anda olduysa callback'in bildirimi
-         * sayacta kalmistir; silinmezse asagidaki bekleme hemen donerdi. */
-        (void)ulTaskNotifyTake(pdTRUE, 0);
-        s_tx_state = TX_PENDING;
-
-        /* t3: baslatma cagrisindan hemen once. */
-        if (is_btn)
-        {
-            record_set_time(msg.event_id, REC_T3, timer_us());
-        }
-
-        if (HAL_UART_Transmit_DMA(&huart2, s_tx_buffer, MSG_LEN) != HAL_OK)
-        {
-            /* Aktarim hic baslamadi, callback gelmeyecek: 1 s beklemek
-             * bosuna olur. huart2 takili kalmasin diye yine de durdurulur. */
-            s_tx_state = TX_ERROR;
-            g_uart_tx_stats.start_fail++;
-            uart_make_safe();
-            if (is_btn)
-            {
-                record_close(msg.event_id, REC_STATUS_TX_ERROR);
-            }
-            continue;
-        }
-
-        const TxState result = wait_for_result();
-        if (result == TX_DONE)
-        {
-            /* t4 ve "ok" callback'te yazildi. */
-            g_uart_tx_stats.tx_done++;
-        }
-        else
-        {
-            /* Hata ya da timeout: DMA hala calisiyor olabilir, durdur. */
-            uart_make_safe();
-
-            RecordStatus status;
-            if (result == TX_TIMEOUT)
-            {
-                g_uart_tx_stats.tx_timeout++;
-                status = REC_STATUS_TIMEOUT;
-            }
-            else
-            {
-                g_uart_tx_stats.tx_error++;
-                status = REC_STATUS_TX_ERROR;
-            }
-            if (is_btn)
-            {
-                record_close(msg.event_id, status);
-            }
+            send_message(&msg);
         }
     }
 }

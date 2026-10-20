@@ -55,3 +55,34 @@ Araç: Claude Code (model: Claude Opus 5.5). Her faz: ne yaptırıldı, nasıl d
 - **Düzeltilenler / bulunanlar:**
   - AI, HAL kaynağını okurken `HAL_UART_AbortTransmit` içinde bir yarış buldu: abort sırasında gelen DMA TC kesmesi TCIE'yi yeniden açabiliyor. Abort'tan sonra TCIE'nin bir kez daha kapatılmasıyla çözüldü.
   - HAL'in DMA kesme kodu sadece TE hatasında DMA stream'ini kapatıyor, DME hatasında DMA çalışmaya devam ediyor. Bu yüzden hata sonrası DMA'yı her durumda görev durduruyor; aksi halde tampon aktarım sürerken üzerine yazılabilirdi.
+
+## Faz 4 — Kalibrasyon, deney akışı, dışa aktarma · 2026-10-20
+
+- **Yaptırılan:**
+  - Açılışta CPU işi kalibrasyonu (`CAL` satırı) ve her periyotta iş süresi ölçümü. Telemetri periyodu (min/ort/max) ve txQ yüksek su seviyesi ölçülüyor.
+  - Deney akışı (yeni `app_experiment.c`): 5 s ısınma, 30 kabulde otomatik durma, ardından `REC`/`CNT`/`END` satırlarıyla dışa aktarma.
+  - Durdurma zinciri: ButtonTask son olaydan 1 s sonra txQ'ya EXPORT işareti koyuyor. FIFO sayesinde işaret geldiğinde tüm kayıtlar kapanmış oluyor; telemetri ancak o zaman durduğu için son olay da aynı yük altında ölçülüyor.
+  - S4/S5 kalibrasyon değerleri girilmeden derlenmiyor.
+- **Kararlar (ben):**
+  - Şartnamede durdurma tetikleyicisi yok; `PROMPTLAR.md`'deki "3 s basılı tutma / UART komutu" yalnızca örnekti. AI kaynakları kontrol edip gösterdi. Ben sadece 30'da otomatik durmayı seçtim.
+  - Arayüzden "Bitir" komutu düşünüldü ama seçilmedi: UART alma, PA3 kablosu ve alma/gönderme hatası ayrımı gerektiriyordu, ayrıca Faz 5'teki "ölçüm sırasında MCU'ya veri gönderme" kuralıyla sınırdaydı.
+  - CMakeLists'e yeni dosya eklenmesine izin verdim.
+- **Doğrulama:**
+  - AI tarafı:
+    - S0–S3 `-Werror` ile 0 uyarı derlendi. S4/S5 iterasyon girilmeden `#error` verdi, girildikten sonra 0 uyarı derlendi.
+    - `-fstack-usage` ile dışa aktarma yolunun yığın kullanımı ölçüldü (`format_cnt` 352 B, toplam ~590 B + `vsnprintf`).
+  - Benim tarafım, kartta, S1 tam deney (debugger bağlı):
+    - 30. basışta otomatik durdu; 30 `REC` (hepsi `ok`, beş zaman dolu), `CNT` ve `END,S1,rec=30` geldi.
+    - 776 TEL/BTN/CAL satırının hepsi 64 bayt.
+    - `rise_edges` 44 = 30 kabul + 14 `release_glitch`. Drop, hata, timeout ve kayıt taşması 0; `txq_hwm` 1.
+    - Telemetri periyodu min/ort/max = 100000 µs.
+    - R min/ort/max = 5612 / 5728 / 7542 µs. İki olayda t3−t2 1431 ve 1953 µs: basış, gönderilmekte olan bir TEL satırına denk geldi.
+  - Kalibrasyon: n=100000, min 12537 µs, max 12539 µs → 7976 iter/ms. Buradan S4 = 15952, S5 = 39880 iterasyon.
+  - S4/S5 (Live Expressions): ortalama iş süresi S4'te 2002 µs, S5'te 5011 µs. İki testte de ilk saniyelerdeki basış `warmup_ignored = 1` olarak sayıldı.
+  - Test edilmeyenler: dışa aktarmada `btn_drop`/`tx_drop`/`timeout` durumları ve boş zaman alanı (bu testte hepsi `ok` çıktı), kayıt taşması. Bunlar sadece kod incelemesiyle kontrol edildi.
+- **Düzeltilenler / bulunanlar:**
+  - AI kendi incelemesinde iki sorun buldu ve test öncesi düzeltti:
+    - CNT satırı en kötü durumda ~560 bayt olabiliyor, 512 baytlık tampon yetmezdi → tampon 640 bayt yapıldı.
+    - Dışa aktarma yolu 1 KB'lık UartTxTask yığınını zorluyordu → yığın 2 KB yapıldı.
+  - S1 testinde ısınma denenemedi: ilk basış 26. saniyedeydi, `rise_edges` ısınmada hiç kenar olmadığını gösterdi. S4/S5 turunda tekrar test edildi.
+  - AI log'daki satır uzunluklarını ilk kontrolünde yanlış saydı (Windows `\r\n` sonları); düzeltip tekrar saydı.
