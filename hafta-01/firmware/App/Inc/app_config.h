@@ -59,4 +59,9 @@
 #define BUTTON_QUEUE_LENGTH        8U    /* ButtonEvent */
 #define TX_QUEUE_LENGTH            16U   /* TxMsg */
 
+/* UartTxTask'in tek bir aktarimin bitmesini en fazla bekledigi sure (deney
+ * gozetim timeout'u). 64 bayt normalde ~5.6 ms surer; 1 s dolduysa aktarim
+ * takilmistir, UART durdurulur ve kayit "timeout" ile kapanir. */
+#define UART_TX_TIMEOUT_MS         1000U
+
 #endif /* APP_CONFIG_H */

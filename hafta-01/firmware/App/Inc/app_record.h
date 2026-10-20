@@ -8,8 +8,10 @@
  * Alan sahipligi (her alani TEK bir yer yazar):
  *   event_id, t0, status=btn_drop  -> buton ISR (HAL_GPIO_EXTI_Callback)
  *   t1, t2, status=tx_drop         -> ButtonTask
- *   t3, status=tx_error/timeout    -> UartTxTask (tx_error/timeout Faz 3)
- *   t4, status=ok                  -> HAL_UART_TxCpltCallback (Faz 3)
+ *   t3, status=tx_error/timeout    -> UartTxTask
+ *   t4, status=ok                  -> HAL_UART_TxCpltCallback
+ * Ayni olayda "ok" (callback) ile "timeout" (gorev) yarisabilir; hangisinin
+ * yazacagina app_uart_tx.c'deki s_tx_state karar verir, sadece biri yazar.
  *
  * Neden kilit gerekmiyor:
  *  1. Her alanin tek yazari var.
@@ -36,7 +38,7 @@ typedef enum
     REC_T1,       /* ButtonTask xQueueReceive dondukten hemen sonra */
     REC_T2,       /* xQueueSend(txQ) cagrisindan hemen once */
     REC_T3,       /* UART IT/DMA baslatma cagrisindan hemen once */
-    REC_T4,       /* HAL_UART_TxCpltCallback (Faz 3) */
+    REC_T4,       /* HAL_UART_TxCpltCallback (USART TC: son bit hattan cikti) */
     REC_T_COUNT
 } RecordTime;
 
