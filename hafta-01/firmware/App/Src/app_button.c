@@ -206,14 +206,14 @@ void button_task(void *argument)
         const TickType_t wait = (experiment_stop_requested() && !export_requested)
                                     ? pdMS_TO_TICKS(EXPERIMENT_END_DELAY_MS)
                                     : portMAX_DELAY;
-        if (xQueueReceive(s_button_queue, &event, wait) != pdPASS)
+        if (xQueueReceive(s_button_queue, &event, wait) != pdPASS)  /* sadece deney sonunda: 30. basistan sonra 1 s olay gelmezse */
         {
             /* Sadece sureli beklemede olur: buttonQ bos, durdurma istendi. */
             request_export();
             export_requested = true;
             continue;
         }
-        record_set_time(event.id, REC_T1, timer_us());
+        record_set_time(event.id, REC_T1, timer_us()); /* t1 burada okunur ve kayda yazilir */
 
         if (!msg_format(&msg, MSG_TYPE_BTN, event.id, "BTN,%" PRIu32 ",S%u,PRESSED",
                         event.id, (unsigned)SCENARIO))
@@ -228,7 +228,7 @@ void button_task(void *argument)
          * sonra kayda artik sonraki sahip (UartTxTask) yazar; oncelikler
          * degistirilse bile bu sira bozulmaz. Gonderim basarisizsa olay
          * elden cikmamistir, kaydi ButtonTask kapatir. */
-        record_set_time(event.id, REC_T2, timer_us());
+        record_set_time(event.id, REC_T2, timer_us()); /* t2 burada okunur ve kayda yazilir */
 
         /* Timeout 0: txQ doluysa beklemek ButtonTask'i baska bir duruma sokardi;
          * bunun yerine kayip gorunur kilinir. */

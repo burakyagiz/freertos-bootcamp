@@ -126,7 +126,7 @@ static TxState transmit_and_wait(uint16_t len, bool is_btn, uint32_t event_id)
     /* t3: baslatma cagrisindan hemen once. */
     if (is_btn)
     {
-        record_set_time(event_id, REC_T3, timer_us());
+        record_set_time(event_id, REC_T3, timer_us()); /* t3 burada okunur ve kayda yazilir */
     }
 
     if (HAL_UART_Transmit_DMA(&huart2, s_tx_buffer, len) != HAL_OK)
@@ -282,7 +282,7 @@ static void wake_task_from_isr(void)
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 {
     /* t4 adayi: ilk is (t0 ile ayni yaklasim). */
-    const uint32_t now = timer_us();
+    const uint32_t now = timer_us(); /* t4 burada okunur; kayda asagida yazilir (sadece BTN) */
 
     if ((huart->Instance != USART2) || (s_tx_state != TX_PENDING))
     {
