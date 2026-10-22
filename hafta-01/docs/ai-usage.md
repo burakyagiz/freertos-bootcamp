@@ -112,3 +112,17 @@ Araç: Claude Code (model: Claude Opus 5.5). Her faz: ne yaptırıldı, nasıl d
 - **Düzeltilenler / bulunanlar:**
   - AI kendi testinde, uzun dosya yolları yüzünden pencerenin 2000 piksel genişliğe çıktığını gördü; uzun etiketlere satır kaydırma eklendi.
   - README'deki biçim örneğinde uydurma bir değer vardı; gerçek veri gibi görünmesin diye yer tutucularla değiştirildi.
+
+## Ölçümler S0–S5 · 2026-10-22
+
+- **Yaptırılan:** Ölçüm defteri şablonu (`measurements/olcum_defteri.md`). Altı koşudan sonra defterin sonuç tablosu, CSV ve sayaç dosyalarından AI tarafından dolduruldu; S5'teki davranış verilerle açıklandı.
+- **Ölçümleri ben yaptım:** debugger bağlı değilken, arayüzle, her senaryoda 30 basış.
+- **Doğrulama (AI, dosyalardan):**
+  - Her dosyada 30 REC ve doğru senaryo alanı var.
+  - Senaryo ayarları sayaçlarla tutarlı: TEL periyodu 100 / 20 / 10 ms, S0'da TEL yok, iş süresi S4'te 2002 µs, S5'te 5011 µs.
+  - 64 bayt hatası 0, çözülemeyen satır 0.
+  - t4−t3 her senaryoda 5.55–5.56 ms; beklendiği gibi yükten bağımsız.
+- **Bulunanlar / düzeltilenler:**
+  - **AI'ın S5 hipotezi yanlıştı.** Ölçümden önce en kötü durum için R ≈ 20.6 ms tahmin edilmişti. Ölçülen: R 165 ms'ye kadar çıktı, 7 BTN yanıtı düştü (`tx_drop`), txQ doldu (`txq_hwm` 16).
+  - Neden: S5'te her 10 ms'nin 5 ms'si CPU işi. Bir mesaj hatta 5.56 ms sürdüğü için kalan 5 ms'lik boşlukta bitemiyor ve UartTxTask periyot başına ancak 1 mesaj başlatabiliyor. Bu da telemetrinin ürettiği mesaj sayısına eşit. Hatta boş kapasite kalmadığı için her BTN yanıtı kuyrukta kalıcı ~10 ms'lik birikim ekledi: t3−t2 basış başına ~10 ms arttı (9.7, 15.5, 30, 40 … ms). Kuyruk dolunca yeni yanıtlar düştü.
+  - Tahmin, kuyruğun boş olduğunu varsayıyordu ve bu birikimi hesaba katmamıştı.
