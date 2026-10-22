@@ -86,3 +86,29 @@ Araç: Claude Code (model: Claude Opus 5.5). Her faz: ne yaptırıldı, nasıl d
     - Dışa aktarma yolu 1 KB'lık UartTxTask yığınını zorluyordu → yığın 2 KB yapıldı.
   - S1 testinde ısınma denenemedi: ilk basış 26. saniyedeydi, `rise_edges` ısınmada hiç kenar olmadığını gösterdi. S4/S5 turunda tekrar test edildi.
   - AI log'daki satır uzunluklarını ilk kontrolünde yanlış saydı (Windows `\r\n` sonları); düzeltip tekrar saydı.
+
+## Faz 5 — PC arayüzü · 2026-10-20/22
+
+- **Yaptırılan:** `interface/` (Python + pyserial + tkinter + matplotlib).
+  - Seri port ayrı bir thread'de okunuyor; satırlar LF ile, kendi tamponumuzla ayrılıyor.
+  - TEL/BTN/CAL satırları için 64 bayt kontrolü yapılıyor.
+  - Pencerede TEL ve BTN ayrı alanlarda; "Butona basıldı · Olay N" göstergesi ve ısınma geri sayımı var.
+  - Deney bitince R grafiği (20 ms çizgisiyle) çiziliyor, kayıp/hata sayaçları gösteriliyor ve iki dosya yazılıyor: `measurements/S<x>.csv` ve `S<x>_counters.csv`.
+  - Var olan dosyanın üzerine yazılmıyor (S1_2.csv). Arayüz karta hiç veri göndermiyor.
+  - Ayrıca `requirements.txt`, `README.md` ve sentetik verili birim testleri.
+- **Kararlar (ben):**
+  - Senaryonun arayüzden seçilmesini sordum. Yapılmadı: şartname senaryonun derleme anında seçilmesini istiyor ve seçim PC'den karta veri göndermeyi gerektirirdi.
+  - Deneme S1 koşusunun resmi ölçüm olup olmayacağına henüz karar vermedim; commit'e girmedi.
+- **Doğrulama:**
+  - AI tarafı:
+    - 12 birim testi geçti (sentetik veri).
+    - Faz 4'teki gerçek S1 log'u gizli bir pencereye beslendi: 745 TEL, 30 BTN ve 30 REC satırının hepsi alındı; END sayısı eşleşti; 64 bayt hatası 0. R min/ort/max = 5.61 / 5.73 / 7.54 ms, Faz 4'teki elle hesapla aynı.
+    - Üretilen grafik görüntülenip kontrol edildi.
+  - Benim tarafım, kartta, S1, debugger bağlı değil:
+    - Isınmadaki 2–3 basış kaydedilmedi (`warmup_ignored` 3).
+    - 30 basıştan sonra grafik çizildi ve iki dosya kaydedildi: 30 REC'in hepsi `ok`, 64 bayt hatası 0, R 5613–5623 µs.
+    - Bu koşuda hiçbir basış bir TEL satırına denk gelmedi. Basışlar rastgele zamanlıysa bunun olasılığı yaklaşık %18.
+    - Kes, tekrar Bağlan ve pencereyi kapatma sorunsuz çalıştı.
+- **Düzeltilenler / bulunanlar:**
+  - AI kendi testinde, uzun dosya yolları yüzünden pencerenin 2000 piksel genişliğe çıktığını gördü; uzun etiketlere satır kaydırma eklendi.
+  - README'deki biçim örneğinde uydurma bir değer vardı; gerçek veri gibi görünmesin diye yer tutucularla değiştirildi.
