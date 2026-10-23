@@ -376,3 +376,62 @@ Karttaki ST-LINK sanal COM portu (COM5) var ama PA2'ye bağlı değil; bu yüzde
 3.3 V USB-TTL dönüştürücüyle alındı (PA2 → RX, GND → GND, VCC bağlanmadı). CP2102 için
 Windows'ta Silicon Labs CP210x VCP sürücüsü gerekti (sürücüsüz cihaz hata kodu 28 verir ve
 COM portu olarak görünmez).
+
+## 10. Faz 1–6 sonrası güncel durum
+
+Yukarıdaki bölümler Faz 0b iskeletini anlatır. Son haldeki farklar ve
+eklenenler aşağıda. Kodun açıklaması `docs/code-notes.md`'de.
+
+**Uygulama modülleri (`firmware/App/`):** `app_time` (TIM2 zaman damgası),
+`app_button` (buton kesmesi, filtre, ButtonTask), `app_msg` (64 baytlık
+mesaj), `app_record` (kayıt havuzu), `app_telemetry` (TelemetryTask,
+kalibrasyon), `app_uart_tx` (UartTxTask, UART callback'leri), `app_tasks`
+(kuyruk ve görevlerin oluşturulması), `app_experiment` (deney akışı ve
+dışa aktarma). `app_experiment.c` Faz 4'te `CMakeLists.txt`'e eklendi.
+
+**Görevler ve kuyruklar:**
+
+| Görev | Öncelik | Yığın |
+|---|---|---|
+| TelemetryTask | 3 | 256 word (1 KB) |
+| ButtonTask | 2 | 256 word (1 KB) |
+| UartTxTask | 1 | 512 word (2 KB): dışa aktarmada uzun CNT satırını biçimlendirir |
+
+`buttonQ`: 8 × `ButtonEvent` (8 B). `txQ`: 16 × `TxMsg` (72 B). Heap: heap_4,
+30 KB.
+
+**Kesme öncelikleri (NVIC, küçük sayı = yüksek öncelik):**
+
+| Kesme | Öncelik | Not |
+|---|---|---|
+| EXTI0 (buton), USART2, DMA1 Stream6 | 6 | `FromISR` çağırırlar; ≥ `configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY` (5) |
+| TIM6 (HAL tick + buton bırakma takibi) | 15 | Ölçüm kesmelerini kesmesin |
+| SysTick, PendSV (FreeRTOS) | 15 | |
+
+**Deney ayarları (`firmware/App/Inc/app_config.h`):**
+
+| Ayar | Değer |
+|---|---|
+| `SCENARIO` | 0–5, derleme anında seçilir (varsayılan 1) |
+| `WORK_ITERATIONS_2MS` / `_5MS` | 15 952 / 39 880 (kalibrasyon: 7976 iter/ms, Debug -O0; 2026-10-20) |
+| `EXPERIMENT_WARMUP_MS` | 5000 |
+| `EXPERIMENT_TARGET_EVENTS` | 30 |
+| `EXPERIMENT_END_DELAY_MS` | 1000 |
+| `UART_TX_TIMEOUT_MS` | 1000 (gözetim timeout'u) |
+
+S4/S5, iterasyonlar 0 iken bilerek derlenmez. Kalibrasyon optimizasyon
+seviyesine bağlıdır; derleme ayarı değişirse açılıştaki `CAL` satırından
+yeniden hesapla.
+
+**LED'ler:** 9. bölümdeki "yeşil LED 1 Hz" davranışı Faz 0b'nin test
+göreviydi. Son halde:
+- Yeşil (PD12): her BTN yanıtında durum değiştirir.
+- Turuncu (PD13): CPU işi sürerken yanar; S4'te soluk, S5'te daha parlak.
+
+**PC araçları:** Python 3.13.2, pyserial 3.5, matplotlib 3.11.1, tkinter 8.6
+(`interface/requirements.txt`).
+
+**Bilinen tuzak:** STM32CubeIDE 2.2, projeyi açıp derleyince
+`firmware/.cproject` içindeki kaynak yolunu (`.`) bilgisayara özgü mutlak bir
+yola çevirebiliyor. Bu değişikliği commit etme: o yol başka bir bilgisayarda
+var olmayan bir klasörü gösterir.

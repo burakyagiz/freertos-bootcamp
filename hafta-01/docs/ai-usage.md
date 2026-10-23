@@ -142,3 +142,23 @@ Araç: Claude Code (model: Claude Opus 5.5). Her faz: ne yaptırıldı, nasıl d
   - Aşama ortalamaları yalnızca beş zamanı da olan olaylardan alındı, böylece toplamları ortalama R'ye eşit. S5'te bu 23 olay.
   - S5 değerleri ~15 kat büyük olduğu için grafiklerde ayrı panelde, kendi ölçeğinde çizildi.
 - **S5 üzerine soru-cevap:** "S5'te telemetri daha çok paket mi üretiyor?" diye sordum. Hayır: S3 ile S5 aynı sayıda TEL üretiyor (100/s). Fark gönderme kapasitesinde: CPU işi, en düşük öncelikli UartTxTask'in yeni gönderim başlatmasını geciktiriyor. Kuyruğu büyütmenin çözüm olmadığı ve doğru yaklaşımlar konuşuldu; rapordaki "İyileştirme önerileri" bölümüne girdi.
+
+## Faz 7 — Rapor ve dokümantasyon · 2026-10-23
+
+- **Yaptırılan:** Teslime hazırlık için AI'dan şunları istedim:
+  - `analysis/report.md`,
+  - `docs/code-notes.md`,
+  - kök `README.md`,
+  - `docs/setup.md`'ye güncel durum bölümü,
+  - ölçüm defterine video koşusu satırı,
+  - video için örnek metin (repoda değil).
+- **Plandan fark:** PROMPTLAR'da raporu benim yazmam ve AI'ın hakem gibi eleştirmesi planlanmıştı. Rapor taslağını AI yazdı; ben teslimden önce okuyup kontrol ediyorum.
+- **Doğrulama (AI tarafı):**
+  - Rapordaki her sayı `summary.csv` ve ham CSV'lerden yeniden hesaplanarak kontrol edildi.
+  - Bırakma filtresinin ölçümlerdeki etkisi hesaplandı: 274 kenar; 180 kabul, 30 ms kuralı 0 eledi, bırakma şartı 94 eledi.
+  - S1–S3'te kuyrukta bekleyen basış oranı hattın meşgul payıyla karşılaştırıldı: 2 / 6 / 13 basış, beklenen ~1,7 / 8,3 / 16,7.
+- **Video:** Videoyu ben çektim. Çekim sırasında yapılan S5 koşusu (`measurements/S5_2.csv`, resmi değil) resmi S5'i tekrarladı: aynı ~10 ms'lik merdiven, 5 `tx_drop`, R en fazla 165,1 ms.
+- **Düzeltilenler:** AI kendi kontrolünde rapor taslağında iki hata buldu:
+  - S1–S3'te R'nin üst sınırı ≈ 11,1 değil 11,2 ms olmalıydı.
+  - Hipotez tablosunda "maksimum R artmadı" ifadesi eksikti: maksimum R S0'dan S1'e arttı, S1–S3 arasında sabit kaldı.
+- **Not:** CubeIDE'nin `.cproject`'e yazdığı bilgisayara özgü mutlak yol commit edilmedi.

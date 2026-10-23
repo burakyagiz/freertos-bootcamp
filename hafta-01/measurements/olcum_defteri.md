@@ -51,6 +51,12 @@ S5'in gözlem notunu kullanıcı bildirdi; diğer senaryolarda kullanıcı gözl
 | S4 | 2026-10-22 21:58 | Evet (S4) | 5,61 / 7,75 / 12,75 | 0 | 0 | 0 / 0 | S4.csv | 18 basış TEL'e denk geldi, 3'ü CPU bekledi; txq_hwm 2 |
 | S5 | 2026-10-22 22:03 | Evet (S5) | 15,33 / 112,48 / 164,74 (n=23) | 22 | 7 (tx_drop) | 0 / 0 | S5.csv | Aşırı yük: txQ doldu (txq_hwm 16), 7 BTN yanıtı ve 9 TEL düştü. Kullanıcı gözlemi: arayüzde basış sayacı birkaç basış boyunca artmadı, sonra son olay numarası atladı. Ekran görüntüleri alındı. |
 
+### Ek koşu (resmi değil)
+
+| Koşu | Tarih-saat | R min / ort / max (ms) | 20 ms aşımı | Yanıt yok | 64 B dışı / çözülemeyen | Dosya | Not |
+|---|---|---|---|---|---|---|---|
+| S5, video sırasında | 2026-10-23 15:46 | 13,34 / 116,79 / 165,10 (n=25) | 24 | 5 (tx_drop) | 0 / 0 | S5_2.csv | Resmi S5'in tekrarı: aynı ~10 ms'lik merdiven, txq_hwm 16, tel_drop 11. Dosyalardan Claude tarafından dolduruldu |
+
 Bir koşuyu tekrarlarsan (yanlış senaryo, yarıda kalma vb.) yeni dosya
 `S<x>_2.csv` adıyla kaydedilir. "Gözlem / not" sütununa hangisinin resmi
 olduğunu ve nedenini yaz; dosyaları kendin silme.
