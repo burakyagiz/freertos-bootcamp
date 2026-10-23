@@ -126,3 +126,19 @@ Araç: Claude Code (model: Claude Opus 5.5). Her faz: ne yaptırıldı, nasıl d
   - **AI'ın S5 hipotezi yanlıştı.** Ölçümden önce en kötü durum için R ≈ 20.6 ms tahmin edilmişti. Ölçülen: R 165 ms'ye kadar çıktı, 7 BTN yanıtı düştü (`tx_drop`), txQ doldu (`txq_hwm` 16).
   - Neden: S5'te her 10 ms'nin 5 ms'si CPU işi. Bir mesaj hatta 5.56 ms sürdüğü için kalan 5 ms'lik boşlukta bitemiyor ve UartTxTask periyot başına ancak 1 mesaj başlatabiliyor. Bu da telemetrinin ürettiği mesaj sayısına eşit. Hatta boş kapasite kalmadığı için her BTN yanıtı kuyrukta kalıcı ~10 ms'lik birikim ekledi: t3−t2 basış başına ~10 ms arttı (9.7, 15.5, 30, 40 … ms). Kuyruk dolunca yeni yanıtlar düştü.
   - Tahmin, kuyruğun boş olduğunu varsayıyordu ve bu birikimi hesaba katmamıştı.
+
+## Faz 6 — Analiz · 2026-10-22/23
+
+- **Yaptırılan:** `analysis/analyze.py` ve şu çıktıları:
+  - her olay için aşama süreleri (`analysis/events.csv`),
+  - senaryo başına özet (`measurements/summary.csv`),
+  - iki grafik (`analysis/plots/`): olay → R ve aşama ortalamaları.
+- Ayrıca sentetik verili 5 birim testi ve `analysis/README.md`. Grafik renkleri bir palet doğrulama aracıyla kontrol edildi.
+- **Doğrulama:**
+  - AI tarafı: Özet değerleri, ölçümler sırasında elle hesaplanan değerlerle aynı (örneğin S5'te R 15.33 / 112.48 / 164.74 ms). Testler geçti. Grafikler görüntülenip etiket çakışması kontrol edildi.
+  - Benim tarafım: Grafikleri inceledim ve videoda kullandım.
+- **Kararlar / notlar:**
+  - `summary.csv` CLAUDE.md'deki yapıya göre `measurements/` altında. PROMPTLAR'ın Faz 7 metni onu `analysis/` altında gösteriyordu.
+  - Aşama ortalamaları yalnızca beş zamanı da olan olaylardan alındı, böylece toplamları ortalama R'ye eşit. S5'te bu 23 olay.
+  - S5 değerleri ~15 kat büyük olduğu için grafiklerde ayrı panelde, kendi ölçeğinde çizildi.
+- **S5 üzerine soru-cevap:** "S5'te telemetri daha çok paket mi üretiyor?" diye sordum. Hayır: S3 ile S5 aynı sayıda TEL üretiyor (100/s). Fark gönderme kapasitesinde: CPU işi, en düşük öncelikli UartTxTask'in yeni gönderim başlatmasını geciktiriyor. Kuyruğu büyütmenin çözüm olmadığı ve doğru yaklaşımlar konuşuldu; rapordaki "İyileştirme önerileri" bölümüne girdi.
